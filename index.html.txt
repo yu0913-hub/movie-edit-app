@@ -1,0 +1,2290 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07090e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>映画編集マネージャー</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-body: #0b0e14;
+      --bg-header: #07090e;
+      --bg-card: #131823;
+      --bg-subcard: #0e131d;
+      --bg-input: #0a0d14;
+      --bg-btn: #1e2636;
+      --border: #252f42;
+      --text-main: #e2e8f0;
+      --text-sub: #94a3b8;
+      --accent-blue: #3b82f6;
+      --accent-blue-dark: #1d4ed8;
+      --accent-green: #22c55e;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      margin: 0;
+      padding: 0 0 84px 0;
+      line-height: 1.45;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .ico { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; vertical-align: middle; }
+    .ico svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .ico-sm svg { width: 14px; height: 14px; }
+    .ico-lg svg { width: 20px; height: 20px; }
+    .inline-flex { display: inline-flex; align-items: center; gap: 5px; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .spinning svg { animation: spin 0.9s linear infinite; }
+
+    /* 上部固定バー */
+    .top-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--border);
+      padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px;
+    }
+    .header-inner { max-width: 960px; margin: 0 auto; }
+    .project-label {
+      font-size: 11px; color: var(--text-sub); margin-bottom: 5px;
+      display: flex; align-items: center; justify-content: space-between; font-weight: 600; gap: 8px;
+    }
+    .sync-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: #64748b; margin-right: 4px;
+    }
+    .sync-dot.online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .header-controls { display: flex; gap: 6px; align-items: center; }
+    .header-controls select {
+      flex: 1; min-width: 0; font-size: 14px; font-weight: 700;
+      padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg-card); color: var(--text-main);
+    }
+    button { border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .header-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+      padding: 9px 10px; font-size: 12px; white-space: nowrap;
+    }
+    .btn-blue { background: var(--accent-blue-dark); color: #f8fafc; }
+    .btn-ghost { background: var(--bg-btn); color: var(--text-main); border: 1px solid var(--border); }
+
+    /* メインコンテナ */
+    .main-container { max-width: 960px; margin: 0 auto; padding: 14px; }
+    .tab-page { display: none; }
+    .tab-page.active { display: block; }
+
+    .card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 720px) {
+      .card-grid { grid-template-columns: repeat(2, 1fr); align-items: start; }
+    }
+    .stack-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .card-grid .card, .stack-list .card { margin-bottom: 0; }
+    .section-header {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .section-title {
+      font-size: 15px; font-weight: 700; color: #f8fafc;
+      display: flex; align-items: center; gap: 6px; margin: 0;
+    }
+    .empty-msg {
+      text-align: center; color: var(--text-sub); padding: 28px 12px;
+      font-size: 13px; grid-column: 1 / -1;
+    }
+    .error-msg {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      color: #fca5a5; background: #2c1014; border: 1px solid #7f1d1d;
+      padding: 14px; border-radius: 10px; font-size: 13px; font-weight: 700; grid-column: 1 / -1;
+      line-height: 1.6;
+    }
+
+    /* セグメント・フィルター */
+    .segment-bar {
+      display: flex; background: var(--bg-input); border: 1px solid var(--border);
+      padding: 4px; border-radius: 10px; gap: 4px; margin-bottom: 12px;
+    }
+    .segment-btn {
+      flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      padding: 9px 8px; font-size: 13px; border-radius: 7px; background: transparent; color: var(--text-sub);
+    }
+    .segment-btn.active { background: var(--bg-btn); color: #f8fafc; border: 1px solid #334155; }
+    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .chip-btn {
+      font-size: 12px; padding: 6px 10px; background: var(--bg-input);
+      color: var(--text-sub); border: 1px solid var(--border); border-radius: 99px;
+    }
+    .chip-btn.active { background: var(--accent-blue-dark); color: #fff; border-color: var(--accent-blue); }
+
+    /* バッジ・バー・ボタン */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700;
+      padding: 3px 8px; border-radius: 99px; background: var(--bg-btn);
+      color: #cbd5e1; border: 1px solid var(--border); white-space: nowrap;
+    }
+    .badge-blue { background: #172554; color: #93c5fd; border-color: #1e40af; }
+    .badge-green { background: #052e16; color: #4ade80; border-color: #166534; }
+    .badge-amber { background: #2c1f09; color: #fcd34d; border-color: #92400e; }
+    .badge-red { background: #2c1014; color: #fca5a5; border-color: #7f1d1d; }
+    .badge-purple { background: #2e1065; color: #d8b4fe; border-color: #6b21a8; }
+    .badge-clickable { cursor: pointer; }
+
+    .progress-bg {
+      width: 100%; height: 9px; background: var(--bg-input);
+      border: 1px solid var(--border); border-radius: 99px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: linear-gradient(90deg, #3b82f6, #22c55e);
+      width: 0%; transition: width 0.3s ease;
+    }
+
+    .card-actions {
+      display: flex; justify-content: space-between; align-items: center; gap: 6px;
+      margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); flex-wrap: wrap;
+    }
+    .card-actions.right-only { justify-content: flex-end; }
+    .act-add-sub {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #0f291e; color: #4ade80; border: 1px solid #166534;
+      font-size: 12px; padding: 5px 10px; border-radius: 6px;
+    }
+    .act-edit {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #172554; color: #93c5fd; border: 1px solid #1e40af;
+      font-size: 12px; padding: 5px 10px; border-radius: 6px;
+    }
+    .act-del {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #2c1014; color: #fca5a5; border: 1px solid #7f1d1d;
+      font-size: 12px; padding: 5px 10px; border-radius: 6px;
+    }
+    .add-main-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      background: var(--accent-blue-dark); color: #f8fafc;
+      font-size: 13px; padding: 8px 12px; border-radius: 8px;
+    }
+
+    /* ホーム */
+    .project-card { cursor: pointer; border-width: 2px; transition: border-color 0.2s ease; }
+    .project-card.is-selected { border-color: var(--accent-blue); }
+    .proj-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+    .proj-id { font-size: 11px; color: var(--text-sub); font-weight: 700; }
+    .proj-name { font-size: 17px; font-weight: 700; color: #f8fafc; margin-top: 2px; }
+    .proj-pct { font-size: 24px; font-weight: 700; color: #60a5fa; line-height: 1; }
+    .proj-members { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+    .proj-meta-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 12px; color: var(--text-sub); margin-top: 8px; gap: 6px; flex-wrap: wrap;
+    }
+    .open-hint { display: inline-flex; align-items: center; gap: 2px; color: #60a5fa; font-weight: 700; }
+
+    .member-task-item {
+      padding: 9px 10px; background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 8px; margin-top: 8px; cursor: pointer;
+    }
+    .member-task-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .member-task-title { font-size: 13px; font-weight: 700; color: #f8fafc; }
+    .member-task-sub { font-size: 12px; color: var(--text-sub); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .member-task-note { font-size: 12px; color: #cbd5e1; margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--border); }
+
+    /* 3階層進捗 */
+    .task-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+    .task-title-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .task-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
+    .task-pct { font-size: 18px; font-weight: 700; color: #4ade80; white-space: nowrap; }
+    .task-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--text-sub); margin-bottom: 8px; }
+    .stage-select {
+      width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg-input); color: var(--text-main); font-size: 13px; font-weight: 700; margin: 8px 0 4px 0;
+    }
+    .stage-select.is-done { background: #052e16; border-color: #166534; color: #4ade80; }
+    .note-box {
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+      padding: 7px 10px; font-size: 12px; color: #cbd5e1; margin-top: 8px;
+      display: flex; align-items: flex-start; gap: 6px; white-space: pre-wrap;
+    }
+
+    .children-wrap {
+      margin-top: 10px; padding-left: 12px; border-left: 2px solid #334155;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .sub-card {
+      background: var(--bg-subcard); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 12px;
+    }
+    .sub-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .sub-title { font-size: 14px; font-weight: 700; color: #f8fafc; }
+    .sub-pct { font-size: 14px; font-weight: 700; color: #4ade80; }
+    .auto-calc-hint { font-size: 11px; color: #60a5fa; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+
+    /* メモ */
+    .memo-card { border-left: 4px solid var(--accent-red); }
+    .memo-card.st-fixed { border-left-color: var(--accent-amber); }
+    .memo-card.st-ok { border-left-color: var(--accent-green); opacity: 0.78; }
+    .memo-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .tc-pill {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+      background: #172554; color: #93c5fd; border: 1px solid #1e40af;
+    }
+    .tc-pill.is-general { background: var(--bg-input); color: var(--text-sub); border-color: var(--border); font-family: inherit; font-size: 11px; }
+    .memo-target-line { font-size: 11px; color: #d8b4fe; margin-bottom: 6px; font-weight: 700; }
+    .memo-body { font-size: 14px; color: #f8fafc; white-space: pre-wrap; margin-bottom: 8px; }
+    .memo-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* 台帳 */
+    .asset-link {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 12px; color: #60a5fa; text-decoration: none; font-weight: 700; margin-top: 6px; word-break: break-all;
+    }
+    .credit-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    }
+    .credit-role { font-size: 11px; color: var(--text-sub); font-weight: 700; }
+    .credit-name { font-size: 15px; font-weight: 700; color: #f8fafc; margin-top: 2px; }
+
+    .member-mgmt-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      padding: 10px; background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 8px; margin-bottom: 8px;
+    }
+
+    /* モーダル */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 300; background: rgba(0, 0, 0, 0.8);
+      display: none; align-items: center; justify-content: center; padding: 14px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
+      background: var(--bg-card); border: 1px solid var(--accent-blue);
+      border-radius: 14px; padding: 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+    }
+    .modal-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    }
+    .modal-title { font-size: 15px; font-weight: 700; color: #f8fafc; display: inline-flex; align-items: center; gap: 6px; }
+    .modal-close { background: var(--bg-btn); color: var(--text-sub); border: 1px solid var(--border); padding: 6px; display: inline-flex; }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 12px; font-weight: 700; color: var(--text-sub); margin-bottom: 4px; }
+    .field input, .field select, .field textarea {
+      width: 100%; padding: 10px; font-size: 14px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg-input); color: var(--text-main); font-family: inherit;
+    }
+    .field textarea { min-height: 74px; resize: vertical; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .preset-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .preset-btn {
+      font-size: 11px; padding: 5px 8px; background: #172554; color: #93c5fd;
+      border: 1px solid #1e40af; border-radius: 6px;
+    }
+    .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
+    .btn-save { flex: 1; background: #15803d; color: #f8fafc; padding: 11px; font-size: 14px; }
+    .btn-cancel { background: var(--bg-btn); color: #cbd5e1; border: 1px solid var(--border); padding: 11px 16px; font-size: 14px; }
+    .form-msg { font-size: 12px; font-weight: 700; margin-top: 8px; min-height: 18px; color: #4ade80; }
+    .form-msg.is-error { color: #f87171; }
+
+    /* 下部ナビ */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+      background: var(--bg-header); border-top: 1px solid var(--border);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .bottom-nav-inner { max-width: 960px; margin: 0 auto; display: flex; }
+    .nav-btn {
+      flex: 1; background: transparent; color: #64748b; border-radius: 0;
+      padding: 8px 4px 10px 4px; font-size: 11px;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .nav-btn.active { color: #60a5fa; border-top: 3px solid var(--accent-blue); background: #101726; }
+
+    #toast {
+      position: fixed; bottom: 78px; left: 50%; transform: translateX(-50%); z-index: 400;
+      background: #0f172a; color: #f8fafc; border: 1px solid var(--accent-blue);
+      padding: 9px 16px; border-radius: 99px; font-size: 13px; font-weight: 700;
+      display: none; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 上部固定バー -->
+  <header class="top-header">
+    <div class="header-inner">
+      <div class="project-label">
+        <span class="inline-flex">
+          <span class="sync-dot" id="syncDot"></span>
+          <span id="syncText">接続中...</span>
+        </span>
+        <span id="headerHierarchyHint" style="color:#60a5fa;"></span>
+      </div>
+      <div class="header-controls">
+        <select id="projectSelect" onchange="onProjectSelectChange()">
+          <option value="">読み込み中...</option>
+        </select>
+        <button class="header-btn btn-blue" onclick="openProjectModal(null)">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span>作品</span>
+        </button>
+        <button class="header-btn btn-ghost" onclick="openMembersModal()">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+          <span>編集者</span>
+        </button>
+        <button class="header-btn btn-ghost" id="reloadBtn" onclick="loadAllData(true, false)" title="最新データに更新">
+          <span class="ico" id="reloadIcon"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+
+    <!-- タブ1：ホーム -->
+    <section id="tab-home" class="tab-page active">
+      <div class="segment-bar">
+        <button class="segment-btn active" id="home-mode-proj" onclick="setHomeMode('projects')">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16"/></svg></span>
+          <span>作品別の進捗</span>
+        </button>
+        <button class="segment-btn" id="home-mode-member" onclick="setHomeMode('members')">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+          <span>編集者別の状況</span>
+        </button>
+      </div>
+
+      <div class="section-header">
+        <h2 class="section-title" id="homeHeading">編集中の作品一覧</h2>
+        <div class="inline-flex">
+          <button class="header-btn btn-ghost" onclick="openMembersModal()">
+            <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span>
+            <span>編集者管理</span>
+          </button>
+          <button class="add-main-btn" onclick="openProjectModal(null)">
+            <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+            <span>新規作品</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="homeContainer" class="card-grid">
+        <div class="card empty-msg">Supabaseからデータを読み込み中...</div>
+      </div>
+    </section>
+
+    <!-- タブ2：進捗 -->
+    <section id="tab-tasks" class="tab-page">
+      <div class="card">
+        <div class="section-header" style="margin-bottom:8px;">
+          <h2 class="section-title">
+            <span class="ico"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
+            <span id="tasksProjectTitle">作品の総合進捗</span>
+          </h2>
+          <span id="tasksAvgPct" style="font-size:22px; font-weight:700; color:#60a5fa;">0%</span>
+        </div>
+        <div class="progress-bg"><div class="progress-fill" id="tasksAvgBar"></div></div>
+        <div id="tasksSubSummary" style="font-size:12px; color:var(--text-sub); margin-top:6px;"></div>
+      </div>
+
+      <div class="section-header">
+        <h2 class="section-title" id="tasksListHeading">シーン一覧</h2>
+        <button class="add-main-btn" onclick="openTaskModal(null, '')">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span id="addTopTaskBtnLabel">シーンを追加</span>
+        </button>
+      </div>
+
+      <div id="tasksContainer" class="stack-list"></div>
+    </section>
+
+    <!-- タブ3：メモ -->
+    <section id="tab-memos" class="tab-page">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg></span>
+          <span>カラー・カット・修正メモ</span>
+        </h2>
+        <button class="add-main-btn" onclick="openMemoModal(null)">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span>メモを書く</span>
+        </button>
+      </div>
+
+      <div class="field" style="margin-bottom:10px;">
+        <select id="memoTaskFilter" onchange="renderMemosTab()">
+          <option value="">すべて表示</option>
+        </select>
+      </div>
+
+      <div class="chip-row" id="memoStatusFilters">
+        <button class="chip-btn active" onclick="setMemoFilter('status', 'open', this)">未完了のみ</button>
+        <button class="chip-btn" onclick="setMemoFilter('status', 'all', this)">すべて</button>
+        <button class="chip-btn" onclick="setMemoFilter('status', '未対応', this)">未対応</button>
+        <button class="chip-btn" onclick="setMemoFilter('status', '修正済', this)">修正済</button>
+        <button class="chip-btn" onclick="setMemoFilter('status', '確認OK', this)">確認OK</button>
+      </div>
+
+      <div class="chip-row" id="memoCatFilters">
+        <button class="chip-btn active" onclick="setMemoFilter('category', 'all', this)">全タグ</button>
+        <button class="chip-btn" onclick="setMemoFilter('category', '#カット', this)">#カット</button>
+        <button class="chip-btn" onclick="setMemoFilter('category', '#カラー', this)">#カラー</button>
+        <button class="chip-btn" onclick="setMemoFilter('category', '#テンポ', this)">#テンポ</button>
+        <button class="chip-btn" onclick="setMemoFilter('category', '#音・BGM', this)">#音・BGM</button>
+        <button class="chip-btn" onclick="setMemoFilter('category', '#テロップ', this)">#テロップ</button>
+        <button class="chip-btn" onclick="setMemoFilter('category', '#ミス修正', this)">#ミス修正</button>
+      </div>
+
+      <div id="memosContainer" class="card-grid"></div>
+    </section>
+
+    <!-- タブ4：台帳 -->
+    <section id="tab-ledger" class="tab-page">
+      <div class="segment-bar">
+        <button class="segment-btn active" id="ledger-mode-assets" onclick="setLedgerMode('assets')">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>
+          <span>BGM・SE・フォント</span>
+        </button>
+        <button class="segment-btn" id="ledger-mode-credits" onclick="setLedgerMode('credits')">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m16 11 2 2 4-4"/></svg></span>
+          <span>エンドロール名簿</span>
+        </button>
+      </div>
+
+      <div class="section-header">
+        <h2 class="section-title" id="ledgerHeading">BGM・効果音・フォント台帳</h2>
+        <button class="add-main-btn" onclick="openCurrentLedgerModal()">
+          <span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span>追加</span>
+        </button>
+      </div>
+
+      <div id="ledgerContainer" class="card-grid"></div>
+    </section>
+  </main>
+
+  <!-- モーダル1：作品 -->
+  <div id="projectModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="projModalTitle">新規作品を追加</span>
+        <button class="modal-close" onclick="closeModal('projectModal')"><span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></button>
+      </div>
+      <div class="field">
+        <label>作品名（必須）</label>
+        <input type="text" id="projNameInput" placeholder="例：秋の長編ミステリー">
+      </div>
+      <div class="field">
+        <label>ステータス</label>
+        <select id="projStatusInput">
+          <option value="編集中">編集中</option>
+          <option value="完了">完了（書き出し・公開済）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>階層の呼び名（長編・短編に合わせて自由に設定）</label>
+        <div class="preset-row">
+          <button type="button" class="preset-btn" onclick="applyHierarchyPreset('シーン', 'コマ')">短編：シーン → コマ</button>
+          <button type="button" class="preset-btn" onclick="applyHierarchyPreset('パート', 'シーン')">長編：パート → シーン</button>
+          <button type="button" class="preset-btn" onclick="applyHierarchyPreset('章', 'カット')">構成：章 → カット</button>
+        </div>
+        <div class="grid-2">
+          <div>
+            <label style="font-size:11px;">中階層の呼び名</label>
+            <input type="text" id="projLevel2Input" placeholder="例：シーン">
+          </div>
+          <div>
+            <label style="font-size:11px;">小階層の呼び名</label>
+            <input type="text" id="projLevel3Input" placeholder="例：コマ">
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('projectModal')">キャンセル</button>
+        <button class="btn-save" id="projSaveBtn" onclick="submitProjectModal()">保存する</button>
+      </div>
+      <div id="projModalMsg" class="form-msg"></div>
+    </div>
+  </div>
+
+  <!-- モーダル2：編集者管理 -->
+  <div id="membersModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">編集者（メンバー）管理</span>
+        <button class="modal-close" onclick="closeModal('membersModal')"><span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></button>
+      </div>
+      <div style="background:var(--bg-subcard); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:14px;">
+        <div id="memberFormTitle" style="font-size:13px; font-weight:700; margin-bottom:8px; color:#60a5fa;">新しい編集者を追加</div>
+        <div class="grid-2">
+          <div class="field" style="margin-bottom:6px;">
+            <label>名前（必須）</label>
+            <input type="text" id="memberNameInput" placeholder="例：鈴木">
+          </div>
+          <div class="field" style="margin-bottom:6px;">
+            <label>担当・役割（任意）</label>
+            <input type="text" id="memberRoleInput" placeholder="例：色調整・粗編集">
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top:8px;">
+          <button class="btn-cancel" id="memberCancelEditBtn" onclick="resetMemberForm()" style="display:none; padding:8px 12px; font-size:12px;">取消</button>
+          <button class="btn-save" id="memberSaveBtn" onclick="submitMemberForm()" style="padding:9px; font-size:13px;">編集者を追加</button>
+        </div>
+        <div id="memberModalMsg" class="form-msg"></div>
+      </div>
+      <div style="font-size:12px; font-weight:700; color:var(--text-sub); margin-bottom:6px;">登録済みの編集者一覧（名前変更は既存担当にも自動連動）</div>
+      <div id="membersListBox"></div>
+    </div>
+  </div>
+
+  <!-- モーダル3：シーン／コマ -->
+  <div id="taskModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="taskModalTitle">シーンを追加</span>
+        <button class="modal-close" onclick="closeModal('taskModal')"><span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></button>
+      </div>
+      <div class="field" id="taskParentWrap" style="display:none;">
+        <label id="taskParentLabel">所属する親</label>
+        <select id="taskParentSelect"></select>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>自由ラベル（任意）</label>
+          <input type="text" id="taskLabelInput" placeholder="例：S01 / 前半 / 重要">
+        </div>
+        <div class="field">
+          <label id="taskNameLabel">名前（必須）</label>
+          <input type="text" id="taskNameInput" placeholder="例：駅前で別れる">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>担当編集者</label>
+          <select id="taskAssigneeSelect"></select>
+        </div>
+        <div class="field">
+          <label>締め切り</label>
+          <input type="date" id="taskDeadlineInput">
+        </div>
+      </div>
+      <div class="field" id="taskStageField">
+        <label>現在の工程（％）</label>
+        <select id="taskStageInput"></select>
+      </div>
+      <div class="field">
+        <label>どこまで終わったか・引き継ぎメモ</label>
+        <textarea id="taskNoteInput" placeholder="例：音声同期とカット繋ぎまで完了。次は色味調整から"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('taskModal')">キャンセル</button>
+        <button class="btn-save" id="taskSaveBtn" onclick="submitTaskModal()">保存する</button>
+      </div>
+      <div id="taskModalMsg" class="form-msg"></div>
+    </div>
+  </div>
+
+  <!-- モーダル4：メモ -->
+  <div id="memoModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="memoModalTitle">編集・修正メモを書く</span>
+        <button class="modal-close" onclick="closeModal('memoModal')"><span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></button>
+      </div>
+      <div class="field">
+        <label>対象のシーン・コマ（任意：空なら作品全体メモ）</label>
+        <select id="memoTaskSelect"></select>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>タイムコード（任意）</label>
+          <input type="text" id="memoTcInput" placeholder="例：12:34">
+        </div>
+        <div class="field">
+          <label>カテゴリタグ</label>
+          <select id="memoCatInput">
+            <option value="#カット">#カット</option>
+            <option value="#カラー">#カラー</option>
+            <option value="#テンポ">#テンポ</option>
+            <option value="#音・BGM">#音・BGM</option>
+            <option value="#テロップ">#テロップ</option>
+            <option value="#ミス修正">#ミス修正</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>メモ・修正内容（必須）</label>
+        <textarea id="memoContentInput" placeholder="例：セリフに被るのでBGMを下げる / 夜のシーンは青みを少し足す"></textarea>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>担当編集者</label>
+          <select id="memoAssigneeSelect"></select>
+        </div>
+        <div class="field">
+          <label>状態</label>
+          <select id="memoStatusInput">
+            <option value="未対応">未対応</option>
+            <option value="修正済">修正済</option>
+            <option value="確認OK">確認OK</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('memoModal')">キャンセル</button>
+        <button class="btn-save" id="memoSaveBtn" onclick="submitMemoModal()">保存する</button>
+      </div>
+      <div id="memoModalMsg" class="form-msg"></div>
+    </div>
+  </div>
+
+  <!-- モーダル5：BGM・SE・フォント -->
+  <div id="assetModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="assetModalTitle">素材を登録</span>
+        <button class="modal-close" onclick="closeModal('assetModal')"><span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></button>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>種別</label>
+          <select id="assetTypeInput">
+            <option value="BGM">BGM</option>
+            <option value="効果音">効果音（SE）</option>
+            <option value="フォント">フォント</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>クレジット表記</label>
+          <select id="assetCreditInput">
+            <option value="要">要（エンドロール記載）</option>
+            <option value="不要">不要</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>曲名・素材名（必須）</label>
+        <input type="text" id="assetNameInput" placeholder="例：夕暮れのピアノ / 源ノ明朝">
+      </div>
+      <div class="field">
+        <label>使用シーン・箇所</label>
+        <input type="text" id="assetSceneInput" placeholder="例：エンディング / S04の雨音">
+      </div>
+      <div class="field">
+        <label>配布サイトURL・メモ</label>
+        <input type="text" id="assetUrlInput" placeholder="https://...">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('assetModal')">キャンセル</button>
+        <button class="btn-save" id="assetSaveBtn" onclick="submitAssetModal()">保存する</button>
+      </div>
+      <div id="assetModalMsg" class="form-msg"></div>
+    </div>
+  </div>
+
+  <!-- モーダル6：エンドロール名簿 -->
+  <div id="creditModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="creditModalTitle">エンドロール名簿に追加</span>
+        <button class="modal-close" onclick="closeModal('creditModal')"><span class="ico ico-sm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></button>
+      </div>
+      <div class="field">
+        <label>役職・クレジット項目</label>
+        <input type="text" id="creditRoleInput" placeholder="例：監督・脚本 / 撮影 / 出演（〇〇役）">
+      </div>
+      <div class="field">
+        <label>表記名（必須）</label>
+        <input type="text" id="creditNameInput" placeholder="例：山田 太郎">
+      </div>
+      <div class="field">
+        <label>漢字・スペルミス確認</label>
+        <select id="creditCheckInput">
+          <option value="未">未確認</option>
+          <option value="済">確認済</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('creditModal')">キャンセル</button>
+        <button class="btn-save" id="creditSaveBtn" onclick="submitCreditModal()">保存する</button>
+      </div>
+      <div id="creditModalMsg" class="form-msg"></div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- 下部固定ナビ -->
+  <nav class="bottom-nav">
+    <div class="bottom-nav-inner">
+      <button class="nav-btn active" id="nav-home" onclick="switchTab('home')">
+        <span class="ico ico-lg"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/><path d="M9 21v-6h6v6"/></svg></span>
+        <span>ホーム</span>
+      </button>
+      <button class="nav-btn" id="nav-tasks" onclick="switchTab('tasks')">
+        <span class="ico ico-lg"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></span>
+        <span>進捗</span>
+      </button>
+      <button class="nav-btn" id="nav-memos" onclick="switchTab('memos')">
+        <span class="ico ico-lg"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg></span>
+        <span>メモ</span>
+      </button>
+      <button class="nav-btn" id="nav-ledger" onclick="switchTab('ledger')">
+        <span class="ico ico-lg"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>
+        <span>台帳</span>
+      </button>
+    </div>
+  </nav>
+
+  <script>
+    // =========================================================================
+    // ★ ここを書き換え：先ほどメモした Project URL と Publishable key を貼り付ける
+    // =========================================================================
+    const SUPABASE_URL = 'https://ulwxlgtitqrlmemxktyi.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_to7jIKQBZNdTfC1a9fKJTw_GI7eDAPs';
+    // =========================================================================
+
+    const STAGES = [
+      { name: '未着手', pct: 0 },
+      { name: '1. 素材整理・音同期', pct: 10 },
+      { name: '2. 粗編集（カット繋ぎ）', pct: 30 },
+      { name: '3. 統合・テンポ調整', pct: 50 },
+      { name: '4. 音調整（セリフ・BGM・SE）', pct: 60 },
+      { name: '5. 色味調整（カラー）', pct: 70 },
+      { name: '6. テロップ・エンドロール', pct: 90 },
+      { name: '7. 最終書き出し・試写チェック', pct: 100 }
+    ];
+
+    const ICONS = {
+      user: '<svg viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+      plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+      calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+      note: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>',
+      edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+      trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>',
+      check: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg>',
+      circle: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>',
+      clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+      link: '<svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></svg>',
+      chevron: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+      layers: '<svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+      alert: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>'
+    };
+
+    let db = null;
+    let allProjects = [];
+    let allMembers = [];
+    let allTasks = [];
+    let allMemos = [];
+    let allAssets = [];
+    let allCredits = [];
+
+    let homeMode = 'projects';
+    let ledgerMode = 'assets';
+    let memoStatusFilter = 'open';
+    let memoCatFilter = 'all';
+
+    let editingProjectId = null;
+    let editingMemberId = null;
+    let editingTaskId = null;
+    let editingMemoId = null;
+    let editingAssetId = null;
+    let editingCreditId = null;
+    let toastTimer = null;
+    let syncTimer = null;
+
+    function makeIcon(name, small) {
+      const span = document.createElement('span');
+      span.className = small ? 'ico ico-sm' : 'ico';
+      span.innerHTML = ICONS[name] || '';
+      return span;
+    }
+
+    function setIconText(el, iconName, text, small) {
+      el.innerHTML = '';
+      if (iconName) el.appendChild(makeIcon(iconName, small));
+      if (text) {
+        const s = document.createElement('span');
+        s.textContent = text;
+        el.appendChild(s);
+      }
+    }
+
+    function stageToPct(stageName) {
+      const found = STAGES.find(function(s) { return s.name === stageName; });
+      return found ? found.pct : 0;
+    }
+
+    function makeUniqueId(prefix) {
+      return prefix + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    }
+
+    function makeNextProjectId() {
+      let maxNum = 0;
+      allProjects.forEach(function(p) {
+        const m = String(p.id || '').match(/^P(\d+)$/i);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n > maxNum) maxNum = n;
+        }
+      });
+      return 'P' + String(maxNum + 1).padStart(2, '0');
+    }
+
+    // ===== 初期化・PWA登録・リアルタイム接続 =====
+    window.onload = function() {
+      const stageSel = document.getElementById('taskStageInput');
+      STAGES.forEach(function(st) {
+        const opt = document.createElement('option');
+        opt.value = st.name;
+        opt.textContent = st.name + '（' + st.pct + '%）';
+        stageSel.appendChild(opt);
+      });
+
+      // PWA（Service Worker）登録（https:// または localhost で動作）
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        navigator.serviceWorker.register('./sw.js').catch(function() {});
+      }
+
+      if (!SUPABASE_URL.startsWith('https://') || SUPABASE_KEY.includes('ここに')) {
+        showHomeError('index.html の「SUPABASE_URL」と「SUPABASE_KEY」に、SupabaseのURLとPublishable keyを貼り付けて保存してください。');
+        document.getElementById('syncText').textContent = '未設定';
+        return;
+      }
+
+      db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      loadAllData(false, false);
+      startRealtimeSync();
+    };
+
+    function startRealtimeSync() {
+      if (!db) return;
+      db.channel('movie-edit-sync')
+        .on('postgres_changes', { event: '*', schema: 'public' }, function() {
+          clearTimeout(syncTimer);
+          syncTimer = setTimeout(function() {
+            loadAllData(true, true);
+          }, 300);
+        })
+        .subscribe(function(status) {
+          const dot = document.getElementById('syncDot');
+          const txt = document.getElementById('syncText');
+          if (status === 'SUBSCRIBED') {
+            dot.classList.add('online');
+            txt.textContent = 'リアルタイム同期中';
+          }
+        });
+    }
+
+    function showHomeError(message) {
+      const home = document.getElementById('homeContainer');
+      home.innerHTML = '';
+      const div = document.createElement('div');
+      div.className = 'error-msg';
+      setIconText(div, 'alert', message, false);
+      home.appendChild(div);
+    }
+
+    function showToast(text) {
+      const el = document.getElementById('toast');
+      el.textContent = text;
+      el.style.display = 'block';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function() { el.style.display = 'none'; }, 2000);
+    }
+
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab-page').forEach(function(p) { p.classList.remove('active'); });
+      document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+      document.getElementById('tab-' + tabName).classList.add('active');
+      document.getElementById('nav-' + tabName).classList.add('active');
+      window.scrollTo(0, 0);
+    }
+
+    // ===== 6テーブル並列・爆速読み込み =====
+    async function loadAllData(keepSelection, silent) {
+      if (!db) return;
+      const prevId = keepSelection ? document.getElementById('projectSelect').value : '';
+      const btn = document.getElementById('reloadBtn');
+      const ico = document.getElementById('reloadIcon');
+      if (!silent) { btn.disabled = true; ico.classList.add('spinning'); }
+
+      try {
+        const results = await Promise.all([
+          db.from('projects').select('*').order('created_at', { ascending: true }),
+          db.from('members').select('*').order('created_at', { ascending: true }),
+          db.from('tasks').select('*').order('created_at', { ascending: true }),
+          db.from('memos').select('*').order('created_at', { ascending: true }),
+          db.from('assets').select('*').order('created_at', { ascending: true }),
+          db.from('credits').select('*').order('created_at', { ascending: true })
+        ]);
+
+        for (let i = 0; i < results.length; i++) {
+          if (results[i].error) throw results[i].error;
+        }
+
+        allProjects = results[0].data || [];
+        allMembers = results[1].data || [];
+        allTasks = results[2].data || [];
+        allMemos = results[3].data || [];
+        allAssets = results[4].data || [];
+        allCredits = results[5].data || [];
+
+        document.getElementById('syncDot').classList.add('online');
+        if (document.getElementById('syncText').textContent === '接続中...') {
+          document.getElementById('syncText').textContent = '接続OK';
+        }
+
+        renderProjectSelect(prevId);
+        if (document.getElementById('membersModal').classList.contains('open')) {
+          renderMembersListInModal();
+        }
+        if (keepSelection && !silent) showToast('最新データに更新しました');
+      } catch (err) {
+        showHomeError('Supabase読込エラー：' + (err.message || err));
+      } finally {
+        btn.disabled = false;
+        ico.classList.remove('spinning');
+      }
+    }
+
+    function getCurrentProject() {
+      const id = document.getElementById('projectSelect').value;
+      return allProjects.find(function(p) { return p.id === id; }) || null;
+    }
+
+    function getProjectById(projectId) {
+      return allProjects.find(function(p) { return p.id === projectId; }) || null;
+    }
+
+    function renderProjectSelect(selectId) {
+      const sel = document.getElementById('projectSelect');
+      sel.innerHTML = '';
+      if (allProjects.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '右の「＋作品」から登録してください';
+        sel.appendChild(opt);
+        refreshAllViews();
+        return;
+      }
+      allProjects.forEach(function(p) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.id + '：' + p.name + (p.status === '完了' ? '（完了）' : '');
+        if (p.id === selectId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      refreshAllViews();
+    }
+
+    function onProjectSelectChange() { refreshAllViews(); }
+
+    function refreshAllViews() {
+      const proj = getCurrentProject();
+      document.getElementById('headerHierarchyHint').textContent = proj
+        ? '階層：' + (proj.level2_label || 'シーン') + ' → ' + (proj.level3_label || 'コマ')
+        : '';
+
+      renderHomeTab();
+      renderTasksTab();
+      updateMemoTaskFilter();
+      renderMemosTab();
+      renderLedgerTab();
+    }
+
+    // ===== 3階層進捗計算 =====
+    function getEffectiveTaskProgress(task) {
+      const children = allTasks.filter(function(c) { return c.parent_id === task.id; });
+      if (children.length === 0) return Number(task.progress) || 0;
+      const sum = children.reduce(function(acc, c) { return acc + (Number(c.progress) || 0); }, 0);
+      return Math.round(sum / children.length);
+    }
+
+    function calcProjectAvgProgress(projectId) {
+      const parents = allTasks.filter(function(t) { return t.project_id === projectId && !t.parent_id; });
+      if (parents.length === 0) return 0;
+      const sum = parents.reduce(function(acc, p) { return acc + getEffectiveTaskProgress(p); }, 0);
+      return Math.round(sum / parents.length);
+    }
+
+    function getLeafTasks(projectId) {
+      const pTasks = allTasks.filter(function(t) { return t.project_id === projectId; });
+      const parentIdsWithChildren = new Set();
+      pTasks.forEach(function(t) { if (t.parent_id) parentIdsWithChildren.add(t.parent_id); });
+      return pTasks.filter(function(t) { return !parentIdsWithChildren.has(t.id); });
+    }
+
+    function formatTaskDisplayName(task) {
+      if (!task) return '';
+      return (task.label ? '[' + task.label + '] ' : '') + task.name;
+    }
+
+    function getFullTaskPath(taskId) {
+      const t = allTasks.find(function(x) { return x.id === taskId; });
+      if (!t) return '';
+      if (t.parent_id) {
+        const parent = allTasks.find(function(x) { return x.id === t.parent_id; });
+        return (parent ? formatTaskDisplayName(parent) + ' ＞ ' : '') + formatTaskDisplayName(t);
+      }
+      return formatTaskDisplayName(t);
+    }
+
+    function populateAssigneeSelect(selectEl, currentVal, emptyLabel) {
+      selectEl.innerHTML = '';
+      const emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = emptyLabel || '未定（未指定）';
+      selectEl.appendChild(emptyOpt);
+
+      const added = new Set();
+      allMembers.forEach(function(m) {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = m.name + (m.role_note ? '（' + m.role_note + '）' : '');
+        if (m.name === currentVal) opt.selected = true;
+        selectEl.appendChild(opt);
+        added.add(m.name);
+      });
+
+      if (currentVal && !added.has(currentVal)) {
+        const opt = document.createElement('option');
+        opt.value = currentVal;
+        opt.textContent = currentVal + '（未登録）';
+        opt.selected = true;
+        selectEl.appendChild(opt);
+      }
+    }
+
+    // ==================== タブ1：ホーム ====================
+    function setHomeMode(mode) {
+      homeMode = mode;
+      document.getElementById('home-mode-proj').classList.toggle('active', mode === 'projects');
+      document.getElementById('home-mode-member').classList.toggle('active', mode === 'members');
+      renderHomeTab();
+    }
+
+    function renderHomeTab() {
+      const container = document.getElementById('homeContainer');
+      const heading = document.getElementById('homeHeading');
+      container.innerHTML = '';
+
+      if (homeMode === 'members') {
+        heading.textContent = '編集者別の担当状況（全作品横断）';
+        renderHomeByMembers(container);
+        return;
+      }
+
+      heading.textContent = '作品別の進捗一覧（' + allProjects.length + '本）';
+      const selectedId = document.getElementById('projectSelect').value;
+
+      if (allProjects.length === 0) {
+        container.innerHTML = '<div class="card empty-msg">まだ作品がありません。右上の「新規作品」から登録しましょう。</div>';
+        return;
+      }
+
+      allProjects.forEach(function(p) {
+        const l2 = p.level2_label || 'シーン';
+        const l3 = p.level3_label || 'コマ';
+        const parents = allTasks.filter(function(t) { return t.project_id === p.id && !t.parent_id; });
+        const children = allTasks.filter(function(t) { return t.project_id === p.id && t.parent_id; });
+        const leafTasks = getLeafTasks(p.id);
+        const openMemos = allMemos.filter(function(m) { return m.project_id === p.id && m.status !== '確認OK'; }).length;
+        const avgPct = calcProjectAvgProgress(p.id);
+
+        const card = document.createElement('div');
+        card.className = 'card project-card' + (p.id === selectedId ? ' is-selected' : '');
+        card.onclick = function() {
+          document.getElementById('projectSelect').value = p.id;
+          refreshAllViews();
+          switchTab('tasks');
+        };
+
+        const top = document.createElement('div');
+        top.className = 'proj-top';
+        const left = document.createElement('div');
+        const idEl = document.createElement('div');
+        idEl.className = 'proj-id';
+        idEl.textContent = p.id + ' ・ ' + p.status + ' ・ ' + l2 + '→' + l3;
+        const nameEl = document.createElement('div');
+        nameEl.className = 'proj-name';
+        nameEl.textContent = p.name;
+        left.appendChild(idEl);
+        left.appendChild(nameEl);
+
+        const pctEl = document.createElement('div');
+        pctEl.className = 'proj-pct';
+        pctEl.textContent = avgPct + '%';
+
+        top.appendChild(left);
+        top.appendChild(pctEl);
+        card.appendChild(top);
+
+        const barBg = document.createElement('div');
+        barBg.className = 'progress-bg';
+        const barFill = document.createElement('div');
+        barFill.className = 'progress-fill';
+        barFill.style.width = avgPct + '%';
+        barBg.appendChild(barFill);
+        card.appendChild(barBg);
+
+        if (leafTasks.length > 0) {
+          const memberMap = {};
+          leafTasks.forEach(function(t) {
+            const who = t.assignee || '未定';
+            if (!memberMap[who]) memberMap[who] = { sum: 0, count: 0 };
+            memberMap[who].sum += Number(t.progress) || 0;
+            memberMap[who].count += 1;
+          });
+          const membersRow = document.createElement('div');
+          membersRow.className = 'proj-members';
+          Object.keys(memberMap).forEach(function(who) {
+            const mAvg = Math.round(memberMap[who].sum / memberMap[who].count);
+            const b = document.createElement('span');
+            b.className = mAvg === 100 ? 'badge badge-green' : 'badge badge-blue';
+            setIconText(b, 'user', who + ' ' + mAvg + '%', true);
+            membersRow.appendChild(b);
+          });
+          card.appendChild(membersRow);
+        }
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'proj-meta-row';
+        const metaLeft = document.createElement('span');
+        metaLeft.textContent = l2 + ' ' + parents.length + '件' +
+          (children.length > 0 ? ' / ' + l3 + ' ' + children.length + '件' : '') +
+          ' ／ 未完了メモ ' + openMemos + '件';
+
+        const openHint = document.createElement('span');
+        openHint.className = 'open-hint';
+        const hintTxt = document.createElement('span');
+        hintTxt.textContent = '開く';
+        openHint.appendChild(hintTxt);
+        openHint.appendChild(makeIcon('chevron', true));
+        metaRow.appendChild(metaLeft);
+        metaRow.appendChild(openHint);
+        card.appendChild(metaRow);
+
+        const actions = document.createElement('div');
+        actions.className = 'card-actions right-only';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'act-edit';
+        setIconText(editBtn, 'edit', '編集・ラベル設定', true);
+        editBtn.onclick = function(e) { e.stopPropagation(); openProjectModal(p); };
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'act-del';
+        setIconText(delBtn, 'trash', '削除', true);
+        delBtn.onclick = function(e) { e.stopPropagation(); deleteProjectItem(p, delBtn); };
+
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        card.appendChild(actions);
+        container.appendChild(card);
+      });
+    }
+
+    function renderHomeByMembers(container) {
+      const activeProjects = allProjects.filter(function(p) { return p.status !== '完了'; });
+      const grouped = {};
+
+      allMembers.forEach(function(m) {
+        grouped[m.name] = { roleNote: m.role_note, tasks: [] };
+      });
+
+      activeProjects.forEach(function(p) {
+        getLeafTasks(p.id).forEach(function(t) {
+          const who = t.assignee || '担当未定';
+          if (!grouped[who]) grouped[who] = { roleNote: '', tasks: [] };
+          grouped[who].tasks.push(t);
+        });
+      });
+
+      const names = Object.keys(grouped);
+      if (names.length === 0) {
+        container.innerHTML = '<div class="card empty-msg">右上の「編集者管理」からメンバーを追加するか、各作品で担当を割り当ててください。</div>';
+        return;
+      }
+
+      const activeProjIds = new Set(activeProjects.map(function(p) { return p.id; }));
+
+      names.forEach(function(memberName) {
+        const info = grouped[memberName];
+        const list = info.tasks;
+        const avg = list.length > 0
+          ? Math.round(list.reduce(function(acc, t) { return acc + (Number(t.progress) || 0); }, 0) / list.length)
+          : 0;
+        const myOpenMemos = allMemos.filter(function(m) {
+          return activeProjIds.has(m.project_id) && m.assignee === memberName && m.status !== '確認OK';
+        }).length;
+
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const top = document.createElement('div');
+        top.className = 'proj-top';
+        const left = document.createElement('div');
+        const nameRow = document.createElement('div');
+        nameRow.className = 'proj-name inline-flex';
+        setIconText(nameRow, 'user', memberName, false);
+        const subRow = document.createElement('div');
+        subRow.className = 'proj-id';
+        subRow.textContent = (info.roleNote ? info.roleNote + ' ・ ' : '') +
+          '担当 ' + list.length + '件 ／ 未完了メモ ' + myOpenMemos + '件';
+        left.appendChild(nameRow);
+        left.appendChild(subRow);
+
+        const pctEl = document.createElement('div');
+        pctEl.className = 'proj-pct';
+        pctEl.textContent = avg + '%';
+
+        top.appendChild(left);
+        top.appendChild(pctEl);
+        card.appendChild(top);
+
+        const barBg = document.createElement('div');
+        barBg.className = 'progress-bg';
+        const barFill = document.createElement('div');
+        barFill.className = 'progress-fill';
+        barFill.style.width = avg + '%';
+        barBg.appendChild(barFill);
+        card.appendChild(barBg);
+
+        if (list.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.fontSize = '12px'; empty.style.color = 'var(--text-sub)'; empty.style.marginTop = '8px';
+          empty.textContent = '現在割り当てられている編集タスクはありません';
+          card.appendChild(empty);
+        } else {
+          list.forEach(function(t) {
+            const proj = getProjectById(t.project_id);
+            const item = document.createElement('div');
+            item.className = 'member-task-item';
+            item.onclick = function() {
+              document.getElementById('projectSelect').value = t.project_id;
+              refreshAllViews();
+              switchTab('tasks');
+            };
+
+            const itemTop = document.createElement('div');
+            itemTop.className = 'member-task-top';
+            const title = document.createElement('span');
+            title.className = 'member-task-title';
+            title.textContent = '[' + (proj ? proj.name : t.project_id) + '] ' + getFullTaskPath(t.id);
+            const badge = document.createElement('span');
+            badge.className = Number(t.progress) === 100 ? 'badge badge-green' : 'badge badge-blue';
+            badge.textContent = t.progress + '%';
+            itemTop.appendChild(title);
+            itemTop.appendChild(badge);
+            item.appendChild(itemTop);
+
+            const itemSub = document.createElement('div');
+            itemSub.className = 'member-task-sub';
+            const stSpan = document.createElement('span');
+            stSpan.textContent = t.stage;
+            const dlSpan = document.createElement('span');
+            dlSpan.textContent = t.deadline ? '〆 ' + t.deadline : '';
+            itemSub.appendChild(stSpan);
+            itemSub.appendChild(dlSpan);
+            item.appendChild(itemSub);
+
+            if (t.note) {
+              const noteEl = document.createElement('div');
+              noteEl.className = 'member-task-note';
+              noteEl.textContent = t.note;
+              item.appendChild(noteEl);
+            }
+            card.appendChild(item);
+          });
+        }
+        container.appendChild(card);
+      });
+    }
+
+    // ==================== タブ2：進捗 ====================
+    function renderTasksTab() {
+      const proj = getCurrentProject();
+      const container = document.getElementById('tasksContainer');
+      const avgPctEl = document.getElementById('tasksAvgPct');
+      const avgBarEl = document.getElementById('tasksAvgBar');
+      const titleEl = document.getElementById('tasksProjectTitle');
+      const subEl = document.getElementById('tasksSubSummary');
+      const listHeading = document.getElementById('tasksListHeading');
+      const addBtnLabel = document.getElementById('addTopTaskBtnLabel');
+      container.innerHTML = '';
+
+      if (!proj) {
+        titleEl.textContent = '作品が選択されていません';
+        avgPctEl.textContent = '0%'; avgBarEl.style.width = '0%'; subEl.textContent = '';
+        listHeading.textContent = 'シーン一覧'; addBtnLabel.textContent = '追加';
+        container.innerHTML = '<div class="card empty-msg">先に画面上の「作品」ボタンから作品を登録してください。</div>';
+        return;
+      }
+
+      const l2 = proj.level2_label || 'シーン';
+      const l3 = proj.level3_label || 'コマ';
+      listHeading.textContent = l2 + '一覧（必要なら中に' + l3 + 'を追加）';
+      addBtnLabel.textContent = l2 + 'を追加';
+
+      const parents = allTasks.filter(function(t) { return t.project_id === proj.id && !t.parent_id; });
+      const avgPct = calcProjectAvgProgress(proj.id);
+      const doneParents = parents.filter(function(p) { return getEffectiveTaskProgress(p) === 100; }).length;
+
+      titleEl.textContent = proj.name + ' の進捗';
+      avgPctEl.textContent = avgPct + '%';
+      avgBarEl.style.width = avgPct + '%';
+      subEl.textContent = l2 + '：' + parents.length + '件（うち100%完了：' + doneParents + '件）';
+
+      if (parents.length === 0) {
+        container.innerHTML = '<div class="card empty-msg">まだ' + l2 + 'がありません。<br>右上の「' + l2 + 'を追加」から登録しましょう。</div>';
+        return;
+      }
+
+      parents.forEach(function(p) {
+        const children = allTasks.filter(function(c) { return c.parent_id === p.id; });
+        const effectivePct = getEffectiveTaskProgress(p);
+
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const top = document.createElement('div');
+        top.className = 'task-top';
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'task-title-wrap';
+        const typeBadge = document.createElement('span');
+        typeBadge.className = 'badge badge-blue';
+        typeBadge.textContent = l2;
+        titleWrap.appendChild(typeBadge);
+
+        if (p.label) {
+          const lblBadge = document.createElement('span');
+          lblBadge.className = 'badge badge-purple';
+          lblBadge.textContent = p.label;
+          titleWrap.appendChild(lblBadge);
+        }
+
+        const title = document.createElement('div');
+        title.className = 'task-title';
+        title.textContent = p.name;
+        titleWrap.appendChild(title);
+
+        const pct = document.createElement('div');
+        pct.className = 'task-pct';
+        pct.textContent = effectivePct + '%';
+        top.appendChild(titleWrap);
+        top.appendChild(pct);
+        card.appendChild(top);
+
+        const meta = document.createElement('div');
+        meta.className = 'task-meta';
+        if (p.assignee) {
+          const who = document.createElement('span'); who.className = 'inline-flex';
+          setIconText(who, 'user', '担当：' + p.assignee, true); meta.appendChild(who);
+        }
+        if (p.deadline) {
+          const dl = document.createElement('span'); dl.className = 'inline-flex';
+          setIconText(dl, 'calendar', '締切：' + p.deadline, true); meta.appendChild(dl);
+        }
+        if (meta.childNodes.length > 0) card.appendChild(meta);
+
+        const barBg = document.createElement('div');
+        barBg.className = 'progress-bg';
+        const barFill = document.createElement('div');
+        barFill.className = 'progress-fill';
+        barFill.style.width = effectivePct + '%';
+        barBg.appendChild(barFill);
+        card.appendChild(barBg);
+
+        if (children.length === 0) {
+          card.appendChild(createStageQuickSelect(p));
+        } else {
+          const hint = document.createElement('div');
+          hint.className = 'auto-calc-hint';
+          setIconText(hint, 'layers', '中の' + l3 + '（' + children.length + '件）の平均から自動計算中', true);
+          card.appendChild(hint);
+        }
+
+        if (p.note) {
+          const noteBox = document.createElement('div');
+          noteBox.className = 'note-box';
+          setIconText(noteBox, 'note', p.note, true);
+          card.appendChild(noteBox);
+        }
+
+        if (children.length > 0) {
+          const childWrap = document.createElement('div');
+          childWrap.className = 'children-wrap';
+
+          children.forEach(function(c) {
+            const sub = document.createElement('div');
+            sub.className = 'sub-card';
+
+            const sTop = document.createElement('div');
+            sTop.className = 'sub-card-top';
+            const sTitleWrap = document.createElement('div');
+            sTitleWrap.className = 'task-title-wrap';
+            const sType = document.createElement('span');
+            sType.className = 'badge'; sType.textContent = l3;
+            sTitleWrap.appendChild(sType);
+            if (c.label) {
+              const sLbl = document.createElement('span');
+              sLbl.className = 'badge badge-purple'; sLbl.textContent = c.label;
+              sTitleWrap.appendChild(sLbl);
+            }
+            const sName = document.createElement('span');
+            sName.className = 'sub-title'; sName.textContent = c.name;
+            sTitleWrap.appendChild(sName);
+
+            const sPct = document.createElement('span');
+            sPct.className = 'sub-pct'; sPct.textContent = c.progress + '%';
+            sTop.appendChild(sTitleWrap); sTop.appendChild(sPct);
+            sub.appendChild(sTop);
+
+            const sMeta = document.createElement('div');
+            sMeta.className = 'task-meta'; sMeta.style.marginBottom = '4px';
+            const sWho = document.createElement('span'); sWho.className = 'inline-flex';
+            setIconText(sWho, 'user', '担当：' + (c.assignee || '未定'), true); sMeta.appendChild(sWho);
+            if (c.deadline) {
+              const sDl = document.createElement('span'); sDl.className = 'inline-flex';
+              setIconText(sDl, 'calendar', '締切：' + c.deadline, true); sMeta.appendChild(sDl);
+            }
+            sub.appendChild(sMeta);
+
+            sub.appendChild(createStageQuickSelect(c));
+
+            if (c.note) {
+              const sNote = document.createElement('div');
+              sNote.className = 'note-box';
+              setIconText(sNote, 'note', c.note, true);
+              sub.appendChild(sNote);
+            }
+
+            const sAct = document.createElement('div');
+            sAct.className = 'card-actions right-only'; sAct.style.marginTop = '8px'; sAct.style.paddingTop = '6px';
+            const sEdit = document.createElement('button');
+            sEdit.className = 'act-edit'; setIconText(sEdit, 'edit', '編集', true);
+            sEdit.onclick = function() { openTaskModal(c, p.id); };
+            const sDel = document.createElement('button');
+            sDel.className = 'act-del'; setIconText(sDel, 'trash', '削除', true);
+            sDel.onclick = function() { deleteTaskItem(c, sDel); };
+            sAct.appendChild(sEdit); sAct.appendChild(sDel);
+            sub.appendChild(sAct);
+            childWrap.appendChild(sub);
+          });
+          card.appendChild(childWrap);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'card-actions';
+        const addChildBtn = document.createElement('button');
+        addChildBtn.className = 'act-add-sub';
+        setIconText(addChildBtn, 'plus', l3 + 'を追加', true);
+        addChildBtn.onclick = function() { openTaskModal(null, p.id); };
+
+        const rightBtns = document.createElement('div');
+        rightBtns.className = 'inline-flex';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'act-edit'; setIconText(editBtn, 'edit', '編集', true);
+        editBtn.onclick = function() { openTaskModal(p, ''); };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'act-del'; setIconText(delBtn, 'trash', '削除', true);
+        delBtn.onclick = function() { deleteTaskItem(p, delBtn); };
+
+        rightBtns.appendChild(editBtn); rightBtns.appendChild(delBtn);
+        actions.appendChild(addChildBtn); actions.appendChild(rightBtns);
+        card.appendChild(actions);
+        container.appendChild(card);
+      });
+    }
+
+    // 楽観的UI（選んだ瞬間に0秒で画面反映 → 裏側で高速保存）
+    function createStageQuickSelect(task) {
+      const sel = document.createElement('select');
+      sel.className = 'stage-select' + (Number(task.progress) === 100 ? ' is-done' : '');
+      STAGES.forEach(function(st) {
+        const opt = document.createElement('option');
+        opt.value = st.name;
+        opt.textContent = st.name + '（' + st.pct + '%）';
+        if (st.name === task.stage) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.onchange = async function() {
+        const prevStage = task.stage;
+        const prevPct = task.progress;
+        const nextStage = sel.value;
+        const nextPct = stageToPct(nextStage);
+
+        // 先に画面を即座に更新（体感0秒）
+        task.stage = nextStage;
+        task.progress = nextPct;
+        refreshAllViews();
+
+        const res = await db.from('tasks').update({ stage: nextStage, progress: nextPct }).eq('id', task.id);
+        if (res.error) {
+          task.stage = prevStage;
+          task.progress = prevPct;
+          refreshAllViews();
+          alert('更新失敗：' + res.error.message);
+        } else {
+          showToast(task.name + ' を ' + nextPct + '% に更新');
+        }
+      };
+      return sel;
+    }
+
+    // ==================== タブ3：メモ ====================
+    function updateMemoTaskFilter() {
+      const proj = getCurrentProject();
+      const sel = document.getElementById('memoTaskFilter');
+      const prevVal = sel.value;
+      sel.innerHTML = '';
+
+      const allOpt = document.createElement('option');
+      allOpt.value = '';
+      allOpt.textContent = proj
+        ? 'すべて表示（作品全体 ＋ 各' + (proj.level2_label || 'シーン') + '・' + (proj.level3_label || 'コマ') + '）'
+        : 'すべて表示';
+      sel.appendChild(allOpt);
+
+      if (!proj) return;
+      allTasks.filter(function(t) { return t.project_id === proj.id && !t.parent_id; }).forEach(function(p) {
+        const pOpt = document.createElement('option');
+        pOpt.value = p.id;
+        pOpt.textContent = '【' + (proj.level2_label || 'シーン') + '】' + formatTaskDisplayName(p);
+        if (p.id === prevVal) pOpt.selected = true;
+        sel.appendChild(pOpt);
+
+        allTasks.filter(function(c) { return c.parent_id === p.id; }).forEach(function(c) {
+          const cOpt = document.createElement('option');
+          cOpt.value = c.id;
+          cOpt.textContent = ' └ ' + formatTaskDisplayName(c);
+          if (c.id === prevVal) cOpt.selected = true;
+          sel.appendChild(cOpt);
+        });
+      });
+    }
+
+    function setMemoFilter(type, value, btnEl) {
+      if (type === 'status') {
+        memoStatusFilter = value;
+        document.querySelectorAll('#memoStatusFilters .chip-btn').forEach(function(b) { b.classList.remove('active'); });
+      } else {
+        memoCatFilter = value;
+        document.querySelectorAll('#memoCatFilters .chip-btn').forEach(function(b) { b.classList.remove('active'); });
+      }
+      if (btnEl) btnEl.classList.add('active');
+      renderMemosTab();
+    }
+
+    function parseTimecodeToSec(tc) {
+      const s = (tc || '').trim();
+      if (!s) return Number.MAX_SAFE_INTEGER;
+      const parts = s.split(':').map(Number);
+      if (parts.some(isNaN)) return Number.MAX_SAFE_INTEGER - 1;
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return parts[0];
+    }
+
+    function renderMemosTab() {
+      const projectId = document.getElementById('projectSelect').value;
+      const taskFilter = document.getElementById('memoTaskFilter').value;
+      const container = document.getElementById('memosContainer');
+      container.innerHTML = '';
+
+      if (!projectId) {
+        container.innerHTML = '<div class="card empty-msg">先に作品を選択してください。</div>';
+        return;
+      }
+
+      const matchTaskIds = new Set();
+      if (taskFilter) {
+        matchTaskIds.add(taskFilter);
+        allTasks.forEach(function(t) { if (t.parent_id === taskFilter) matchTaskIds.add(t.id); });
+      }
+
+      const filtered = allMemos
+        .filter(function(m) {
+          if (m.project_id !== projectId) return false;
+          if (taskFilter && !matchTaskIds.has(m.task_id)) return false;
+          if (memoStatusFilter === 'open' && m.status === '確認OK') return false;
+          if (memoStatusFilter !== 'all' && memoStatusFilter !== 'open' && m.status !== memoStatusFilter) return false;
+          if (memoCatFilter !== 'all' && m.category !== memoCatFilter) return false;
+          return true;
+        })
+        .slice()
+        .sort(function(a, b) { return parseTimecodeToSec(a.timecode) - parseTimecodeToSec(b.timecode); });
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="card empty-msg">条件に合うメモがありません。右上の「メモを書く」から追加できます。</div>';
+        return;
+      }
+
+      filtered.forEach(function(m) {
+        const card = document.createElement('div');
+        let stClass = '';
+        let badgeClass = 'badge badge-red badge-clickable';
+        let nextStatus = '修正済';
+        if (m.status === '修正済') {
+          stClass = ' st-fixed'; badgeClass = 'badge badge-amber badge-clickable'; nextStatus = '確認OK';
+        } else if (m.status === '確認OK') {
+          stClass = ' st-ok'; badgeClass = 'badge badge-green badge-clickable'; nextStatus = '未対応';
+        }
+        card.className = 'card memo-card' + stClass;
+
+        const top = document.createElement('div');
+        top.className = 'memo-top';
+        const leftGroup = document.createElement('div');
+        leftGroup.className = 'inline-flex';
+        const tcEl = document.createElement('span');
+        tcEl.className = m.timecode ? 'tc-pill' : 'tc-pill is-general';
+        tcEl.textContent = m.timecode || '時間指定なし';
+        const catEl = document.createElement('span');
+        catEl.className = 'badge badge-blue';
+        catEl.textContent = m.category;
+        leftGroup.appendChild(tcEl); leftGroup.appendChild(catEl);
+
+        const statusBtn = document.createElement('button');
+        statusBtn.className = badgeClass;
+        setIconText(statusBtn, m.status === '確認OK' ? 'check' : 'clock', m.status, true);
+        statusBtn.onclick = async function() {
+          const prev = m.status;
+          m.status = nextStatus;
+          refreshAllViews();
+          const res = await db.from('memos').update({ status: nextStatus }).eq('id', m.id);
+          if (res.error) {
+            m.status = prev; refreshAllViews(); alert('変更失敗：' + res.error.message);
+          } else {
+            showToast('メモを「' + nextStatus + '」に変更');
+          }
+        };
+
+        top.appendChild(leftGroup); top.appendChild(statusBtn);
+        card.appendChild(top);
+
+        if (m.task_id) {
+          const path = getFullTaskPath(m.task_id);
+          if (path) {
+            const targetLine = document.createElement('div');
+            targetLine.className = 'memo-target-line inline-flex';
+            setIconText(targetLine, 'layers', path, true);
+            card.appendChild(targetLine);
+          }
+        }
+
+        const body = document.createElement('div');
+        body.className = 'memo-body';
+        body.textContent = m.content;
+        card.appendChild(body);
+
+        const footer = document.createElement('div');
+        footer.className = 'memo-footer';
+        const who = document.createElement('span');
+        who.className = 'inline-flex'; who.style.fontSize = '12px'; who.style.color = 'var(--text-sub)';
+        setIconText(who, 'user', '担当：' + (m.assignee || '全員'), true);
+
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'inline-flex';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'act-edit'; setIconText(editBtn, 'edit', '編集', true);
+        editBtn.onclick = function() { openMemoModal(m); };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'act-del'; setIconText(delBtn, 'trash', '削除', true);
+        delBtn.onclick = function() { deleteMemoItem(m, delBtn); };
+
+        btnGroup.appendChild(editBtn); btnGroup.appendChild(delBtn);
+        footer.appendChild(who); footer.appendChild(btnGroup);
+        card.appendChild(footer);
+        container.appendChild(card);
+      });
+    }
+
+    // ==================== タブ4：台帳 ====================
+    function setLedgerMode(mode) {
+      ledgerMode = mode;
+      document.getElementById('ledger-mode-assets').classList.toggle('active', mode === 'assets');
+      document.getElementById('ledger-mode-credits').classList.toggle('active', mode === 'credits');
+      document.getElementById('ledgerHeading').textContent =
+        mode === 'assets' ? 'BGM・効果音・フォント台帳' : 'エンドロール名簿';
+      renderLedgerTab();
+    }
+
+    function openCurrentLedgerModal() {
+      if (ledgerMode === 'assets') openAssetModal(null);
+      else openCreditModal(null);
+    }
+
+    function renderLedgerTab() {
+      const projectId = document.getElementById('projectSelect').value;
+      const container = document.getElementById('ledgerContainer');
+      container.innerHTML = '';
+
+      if (!projectId) {
+        container.innerHTML = '<div class="card empty-msg">先に作品を選択してください。</div>';
+        return;
+      }
+
+      if (ledgerMode === 'assets') {
+        const list = allAssets.filter(function(a) { return a.project_id === projectId; });
+        if (list.length === 0) {
+          container.innerHTML = '<div class="card empty-msg">BGM・効果音・フォントがまだ登録されていません。</div>';
+          return;
+        }
+        list.forEach(function(a) {
+          const card = document.createElement('div');
+          card.className = 'card';
+
+          const top = document.createElement('div');
+          top.className = 'memo-top';
+          const typeB = document.createElement('span');
+          typeB.className = 'badge badge-blue'; typeB.textContent = a.type;
+          const credB = document.createElement('span');
+          credB.className = a.credit_req === '要' ? 'badge badge-amber' : 'badge';
+          credB.textContent = 'クレジット：' + a.credit_req;
+          top.appendChild(typeB); top.appendChild(credB);
+          card.appendChild(top);
+
+          const name = document.createElement('div');
+          name.className = 'task-title'; name.textContent = a.name;
+          card.appendChild(name);
+
+          if (a.scene) {
+            const sc = document.createElement('div');
+            sc.style.fontSize = '12px'; sc.style.color = 'var(--text-sub)'; sc.style.marginTop = '4px';
+            sc.textContent = '使用箇所：' + a.scene;
+            card.appendChild(sc);
+          }
+
+          if (a.url) {
+            if (/^https?:\/\//.test(a.url)) {
+              const link = document.createElement('a');
+              link.className = 'asset-link'; link.href = a.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+              setIconText(link, 'link', '配布サイトを開く', true);
+              card.appendChild(link);
+            } else {
+              const txt = document.createElement('div');
+              txt.style.fontSize = '12px'; txt.style.color = 'var(--text-sub)'; txt.style.marginTop = '4px';
+              txt.textContent = a.url;
+              card.appendChild(txt);
+            }
+          }
+
+          const actions = document.createElement('div');
+          actions.className = 'card-actions right-only';
+          const editBtn = document.createElement('button');
+          editBtn.className = 'act-edit'; setIconText(editBtn, 'edit', '編集', true);
+          editBtn.onclick = function() { openAssetModal(a); };
+          const delBtn = document.createElement('button');
+          delBtn.className = 'act-del'; setIconText(delBtn, 'trash', '削除', true);
+          delBtn.onclick = function() { deleteAssetItem(a, delBtn); };
+          actions.appendChild(editBtn); actions.appendChild(delBtn);
+          card.appendChild(actions);
+          container.appendChild(card);
+        });
+      } else {
+        const list = allCredits.filter(function(c) { return c.project_id === projectId; });
+        if (list.length === 0) {
+          container.innerHTML = '<div class="card empty-msg">エンドロール名簿がまだ登録されていません。</div>';
+          return;
+        }
+        list.forEach(function(c) {
+          const row = document.createElement('div');
+          row.className = 'credit-row';
+
+          const info = document.createElement('div');
+          const roleEl = document.createElement('div');
+          roleEl.className = 'credit-role'; roleEl.textContent = c.role || '役職未設定';
+          const nameEl = document.createElement('div');
+          nameEl.className = 'credit-name'; nameEl.textContent = c.person_name;
+          info.appendChild(roleEl); info.appendChild(nameEl);
+
+          const right = document.createElement('div');
+          right.className = 'inline-flex';
+          const chkBtn = document.createElement('button');
+          const isChecked = c.checked === '済';
+          chkBtn.className = isChecked ? 'badge badge-green badge-clickable' : 'badge badge-clickable';
+          setIconText(chkBtn, isChecked ? 'check' : 'circle', isChecked ? '確認済' : '未確認', true);
+          chkBtn.onclick = async function() {
+            const prev = c.checked;
+            const nextVal = isChecked ? '未' : '済';
+            c.checked = nextVal;
+            renderLedgerTab();
+            const res = await db.from('credits').update({ checked: nextVal }).eq('id', c.id);
+            if (res.error) { c.checked = prev; renderLedgerTab(); alert('更新失敗：' + res.error.message); }
+          };
+
+          const editBtn = document.createElement('button');
+          editBtn.className = 'act-edit'; editBtn.appendChild(makeIcon('edit', true));
+          editBtn.onclick = function() { openCreditModal(c); };
+          const delBtn = document.createElement('button');
+          delBtn.className = 'act-del'; delBtn.appendChild(makeIcon('trash', true));
+          delBtn.onclick = function() { deleteCreditItem(c, delBtn); };
+
+          right.appendChild(chkBtn); right.appendChild(editBtn); right.appendChild(delBtn);
+          row.appendChild(info); row.appendChild(right);
+          container.appendChild(row);
+        });
+      }
+    }
+
+    // ==================== CRUD：作品 ====================
+    function applyHierarchyPreset(l2, l3) {
+      document.getElementById('projLevel2Input').value = l2;
+      document.getElementById('projLevel3Input').value = l3;
+    }
+
+    function openProjectModal(proj) {
+      editingProjectId = proj ? proj.id : null;
+      document.getElementById('projModalTitle').textContent = proj ? '作品を編集（' + proj.id + '）' : '新規作品を追加';
+      document.getElementById('projNameInput').value = proj ? proj.name : '';
+      document.getElementById('projStatusInput').value = proj ? proj.status : '編集中';
+      document.getElementById('projLevel2Input').value = proj ? (proj.level2_label || 'シーン') : 'シーン';
+      document.getElementById('projLevel3Input').value = proj ? (proj.level3_label || 'コマ') : 'コマ';
+      document.getElementById('projModalMsg').textContent = '';
+      document.getElementById('projectModal').classList.add('open');
+    }
+
+    async function submitProjectModal() {
+      const name = document.getElementById('projNameInput').value.trim();
+      const status = document.getElementById('projStatusInput').value;
+      const level2_label = document.getElementById('projLevel2Input').value.trim() || 'シーン';
+      const level3_label = document.getElementById('projLevel3Input').value.trim() || 'コマ';
+      const msg = document.getElementById('projModalMsg');
+      const btn = document.getElementById('projSaveBtn');
+      if (!name) { msg.className = 'form-msg is-error'; msg.textContent = '作品名を入力してください'; return; }
+
+      btn.disabled = true; msg.className = 'form-msg'; msg.textContent = '保存中...';
+      const payload = { id: editingProjectId || makeNextProjectId(), name, status, level2_label, level3_label };
+
+      const res = await db.from('projects').upsert(payload).select().single();
+      btn.disabled = false;
+      if (res.error) { msg.className = 'form-msg is-error'; msg.textContent = 'エラー：' + res.error.message; return; }
+
+      const idx = allProjects.findIndex(function(p) { return p.id === res.data.id; });
+      if (idx !== -1) allProjects[idx] = res.data; else allProjects.push(res.data);
+      closeModal('projectModal');
+      renderProjectSelect(res.data.id);
+      showToast('作品を保存しました');
+    }
+
+    async function deleteProjectItem(proj, btn) {
+      if (!confirm('作品「' + proj.name + '」を削除しますか？\n関連する進捗・メモ・台帳もすべて削除されます。')) return;
+      btn.disabled = true;
+      const res = await db.from('projects').delete().eq('id', proj.id);
+      if (res.error) { alert('削除失敗：' + res.error.message); btn.disabled = false; return; }
+
+      allProjects = allProjects.filter(function(p) { return p.id !== proj.id; });
+      allTasks = allTasks.filter(function(t) { return t.project_id !== proj.id; });
+      allMemos = allMemos.filter(function(m) { return m.project_id !== proj.id; });
+      allAssets = allAssets.filter(function(a) { return a.project_id !== proj.id; });
+      allCredits = allCredits.filter(function(c) { return c.project_id !== proj.id; });
+      renderProjectSelect('');
+      showToast('作品を削除しました');
+    }
+
+    // ==================== CRUD：編集者 ====================
+    function openMembersModal() {
+      resetMemberForm();
+      renderMembersListInModal();
+      document.getElementById('membersModal').classList.add('open');
+    }
+
+    function resetMemberForm() {
+      editingMemberId = null;
+      document.getElementById('memberFormTitle').textContent = '新しい編集者を追加';
+      document.getElementById('memberSaveBtn').textContent = '編集者を追加';
+      document.getElementById('memberCancelEditBtn').style.display = 'none';
+      document.getElementById('memberNameInput').value = '';
+      document.getElementById('memberRoleInput').value = '';
+      document.getElementById('memberModalMsg').textContent = '';
+    }
+
+    function renderMembersListInModal() {
+      const box = document.getElementById('membersListBox');
+      box.innerHTML = '';
+      if (allMembers.length === 0) {
+        box.innerHTML = '<div style="text-align:center; color:var(--text-sub); font-size:13px; padding:16px;">まだ編集者が登録されていません。</div>';
+        return;
+      }
+      allMembers.forEach(function(m) {
+        const row = document.createElement('div');
+        row.className = 'member-mgmt-row';
+
+        const left = document.createElement('div');
+        const nameEl = document.createElement('div');
+        nameEl.style.fontWeight = '700'; nameEl.style.fontSize = '14px'; nameEl.textContent = m.name;
+        const roleEl = document.createElement('div');
+        roleEl.style.fontSize = '11px'; roleEl.style.color = 'var(--text-sub)'; roleEl.textContent = m.role_note || '役割未設定';
+        left.appendChild(nameEl); left.appendChild(roleEl);
+
+        const right = document.createElement('div');
+        right.className = 'inline-flex';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'act-edit'; setIconText(editBtn, 'edit', '編集', true);
+        editBtn.onclick = function() {
+          editingMemberId = m.id;
+          document.getElementById('memberFormTitle').textContent = '編集者を修正（' + m.name + '）';
+          document.getElementById('memberSaveBtn').textContent = '変更を保存';
+          document.getElementById('memberCancelEditBtn').style.display = 'inline-block';
+          document.getElementById('memberNameInput').value = m.name;
+          document.getElementById('memberRoleInput').value = m.role_note || '';
+          document.getElementById('memberModalMsg').textContent = '';
+        };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'act-del'; setIconText(delBtn, 'trash', '削除', true);
+        delBtn.onclick = function() { deleteMemberItem(m, delBtn); };
+
+        right.appendChild(editBtn); right.appendChild(delBtn);
+        row.appendChild(left); row.appendChild(right);
+        box.appendChild(row);
+      });
+    }
+
+    async function submitMemberForm() {
+      const name = document.getElementById('memberNameInput').value.trim();
+      const role_note = document.getElementById('memberRoleInput').value.trim();
+      const msg = document.getElementById('memberModalMsg');
+      const btn = document.getElementById('memberSaveBtn');
+      if (!name) { msg.className = 'form-msg is-error'; msg.textContent = '名前を入力してください'; return; }
+
+      btn.disabled = true; msg.className = 'form-msg'; msg.textContent = '保存中...';
+      const oldMember = editingMemberId ? allMembers.find(function(m) { return m.id === editingMemberId; }) : null;
+      const oldName = oldMember ? oldMember.name : '';
+
+      const payload = { id: editingMemberId || makeUniqueId('MB-'), name, role_note };
+      const res = await db.from('members').upsert(payload).select().single();
+      if (res.error) { msg.className = 'form-msg is-error'; msg.textContent = 'エラー：' + res.error.message; btn.disabled = false; return; }
+
+      if (oldName && oldName !== name) {
+        await Promise.all([
+          db.from('tasks').update({ assignee: name }).eq('assignee', oldName),
+          db.from('memos').update({ assignee: name }).eq('assignee', oldName)
+        ]);
+        allTasks.forEach(function(t) { if (t.assignee === oldName) t.assignee = name; });
+        allMemos.forEach(function(m) { if (m.assignee === oldName) m.assignee = name; });
+      }
+
+      const idx = allMembers.findIndex(function(m) { return m.id === res.data.id; });
+      if (idx !== -1) allMembers[idx] = res.data; else allMembers.push(res.data);
+
+      btn.disabled = false;
+      resetMemberForm();
+      renderMembersListInModal();
+      refreshAllViews();
+      showToast('編集者を保存しました');
+    }
+
+    async function deleteMemberItem(member, btn) {
+      if (!confirm('編集者「' + member.name + '」をリストから削除しますか？')) return;
+      btn.disabled = true;
+      const res = await db.from('members').delete().eq('id', member.id);
+      if (res.error) { alert('削除失敗：' + res.error.message); btn.disabled = false; return; }
+
+      allMembers = allMembers.filter(function(m) { return m.id !== member.id; });
+      if (editingMemberId === member.id) resetMemberForm();
+      renderMembersListInModal();
+      refreshAllViews();
+      showToast('編集者を削除しました');
+    }
+
+    // ==================== CRUD：シーン／コマ ====================
+    function openTaskModal(task, defaultParentId) {
+      const proj = getCurrentProject();
+      if (!proj) { alert('先に作品を作成してください'); return; }
+      const l2 = proj.level2_label || 'シーン';
+      const l3 = proj.level3_label || 'コマ';
+
+      editingTaskId = task ? task.id : null;
+      const parentId = task ? (task.parent_id || '') : (defaultParentId || '');
+      const isChild = Boolean(parentId);
+      const unitLabel = isChild ? l3 : l2;
+
+      document.getElementById('taskModalTitle').textContent = task ? unitLabel + 'を編集' : unitLabel + 'を追加';
+      document.getElementById('taskNameLabel').textContent = unitLabel + '名（必須）';
+
+      const parentWrap = document.getElementById('taskParentWrap');
+      const parentSel = document.getElementById('taskParentSelect');
+      if (isChild) {
+        parentWrap.style.display = 'block';
+        document.getElementById('taskParentLabel').textContent = '所属する' + l2;
+        parentSel.innerHTML = '';
+        allTasks.filter(function(t) { return t.project_id === proj.id && !t.parent_id; }).forEach(function(p) {
+          const opt = document.createElement('option');
+          opt.value = p.id; opt.textContent = formatTaskDisplayName(p);
+          if (p.id === parentId) opt.selected = true;
+          parentSel.appendChild(opt);
+        });
+      } else {
+        parentWrap.style.display = 'none';
+        parentSel.innerHTML = '';
+      }
+
+      document.getElementById('taskLabelInput').value = task ? (task.label || '') : '';
+      document.getElementById('taskNameInput').value = task ? task.name : '';
+      populateAssigneeSelect(document.getElementById('taskAssigneeSelect'), task ? task.assignee : '', '未定');
+      document.getElementById('taskDeadlineInput').value = task ? (task.deadline || '') : '';
+      document.getElementById('taskStageInput').value = task ? task.stage : '未着手';
+      document.getElementById('taskNoteInput').value = task ? (task.note || '') : '';
+
+      const hasChildren = task && allTasks.some(function(c) { return c.parent_id === task.id; });
+      document.getElementById('taskStageField').style.display = hasChildren ? 'none' : 'block';
+      document.getElementById('taskModalMsg').textContent = '';
+      document.getElementById('taskModal').classList.add('open');
+    }
+
+    async function submitTaskModal() {
+      const proj = getCurrentProject();
+      const name = document.getElementById('taskNameInput').value.trim();
+      const msg = document.getElementById('taskModalMsg');
+      const btn = document.getElementById('taskSaveBtn');
+      if (!proj || !name) { msg.className = 'form-msg is-error'; msg.textContent = '名前を入力してください'; return; }
+
+      const parentWrap = document.getElementById('taskParentWrap');
+      const parent_id = parentWrap.style.display === 'block' ? document.getElementById('taskParentSelect').value : '';
+      const stage = document.getElementById('taskStageInput').value;
+
+      btn.disabled = true; msg.className = 'form-msg'; msg.textContent = '保存中...';
+      const payload = {
+        id: editingTaskId || makeUniqueId('TK-'),
+        project_id: proj.id,
+        parent_id: parent_id,
+        label: document.getElementById('taskLabelInput').value.trim(),
+        name: name,
+        assignee: document.getElementById('taskAssigneeSelect').value,
+        deadline: document.getElementById('taskDeadlineInput').value,
+        stage: stage,
+        progress: stageToPct(stage),
+        note: document.getElementById('taskNoteInput').value.trim()
+      };
+
+      const res = await db.from('tasks').upsert(payload).select().single();
+      btn.disabled = false;
+      if (res.error) { msg.className = 'form-msg is-error'; msg.textContent = 'エラー：' + res.error.message; return; }
+
+      const idx = allTasks.findIndex(function(t) { return t.id === res.data.id; });
+      if (idx !== -1) allTasks[idx] = res.data; else allTasks.push(res.data);
+      closeModal('taskModal');
+      refreshAllViews();
+      showToast('保存しました');
+    }
+
+    async function deleteTaskItem(task, btn) {
+      const childrenCount = allTasks.filter(function(c) { return c.parent_id === task.id; }).length;
+      const extra = childrenCount > 0 ? '\n※中に含まれる' + childrenCount + '件の項目も一緒に削除されます。' : '';
+      if (!confirm('「' + task.name + '」を削除しますか？' + extra)) return;
+
+      btn.disabled = true;
+      const r1 = await db.from('tasks').delete().eq('parent_id', task.id);
+      const r2 = await db.from('tasks').delete().eq('id', task.id);
+      if (r1.error || r2.error) {
+        alert('削除失敗：' + ((r1.error || r2.error).message));
+        btn.disabled = false;
+        return;
+      }
+
+      allTasks = allTasks.filter(function(t) { return t.id !== task.id && t.parent_id !== task.id; });
+      refreshAllViews();
+      showToast('削除しました');
+    }
+
+    // ==================== CRUD：メモ ====================
+    function openMemoModal(memo) {
+      const proj = getCurrentProject();
+      if (!proj) { alert('先に作品を作成してください'); return; }
+      editingMemoId = memo ? memo.id : null;
+      document.getElementById('memoModalTitle').textContent = memo ? 'メモを編集' : '編集・修正メモを書く';
+
+      const taskSel = document.getElementById('memoTaskSelect');
+      taskSel.innerHTML = '<option value="">作品全体へのメモ（指定なし）</option>';
+      allTasks.filter(function(t) { return t.project_id === proj.id && !t.parent_id; }).forEach(function(p) {
+        const pOpt = document.createElement('option');
+        pOpt.value = p.id;
+        pOpt.textContent = '【' + (proj.level2_label || 'シーン') + '】' + formatTaskDisplayName(p);
+        if (memo && memo.task_id === p.id) pOpt.selected = true;
+        taskSel.appendChild(pOpt);
+
+        allTasks.filter(function(c) { return c.parent_id === p.id; }).forEach(function(c) {
+          const cOpt = document.createElement('option');
+          cOpt.value = c.id;
+          cOpt.textContent = ' └ ' + formatTaskDisplayName(c);
+          if (memo && memo.task_id === c.id) cOpt.selected = true;
+          taskSel.appendChild(cOpt);
+        });
+      });
+
+      document.getElementById('memoTcInput').value = memo ? (memo.timecode || '') : '';
+      document.getElementById('memoCatInput').value = memo ? memo.category : '#カット';
+      document.getElementById('memoContentInput').value = memo ? memo.content : '';
+      populateAssigneeSelect(document.getElementById('memoAssigneeSelect'), memo ? memo.assignee : '', '全員（指定なし）');
+      document.getElementById('memoStatusInput').value = memo ? memo.status : '未対応';
+      document.getElementById('memoModalMsg').textContent = '';
+      document.getElementById('memoModal').classList.add('open');
+    }
+
+    async function submitMemoModal() {
+      const project_id = document.getElementById('projectSelect').value;
+      const content = document.getElementById('memoContentInput').value.trim();
+      const msg = document.getElementById('memoModalMsg');
+      const btn = document.getElementById('memoSaveBtn');
+      if (!content) { msg.className = 'form-msg is-error'; msg.textContent = 'メモ内容を入力してください'; return; }
+
+      btn.disabled = true; msg.className = 'form-msg'; msg.textContent = '保存中...';
+      const payload = {
+        id: editingMemoId || makeUniqueId('MM-'),
+        project_id: project_id,
+        task_id: document.getElementById('memoTaskSelect').value,
+        timecode: document.getElementById('memoTcInput').value.trim(),
+        category: document.getElementById('memoCatInput').value,
+        content: content,
+        assignee: document.getElementById('memoAssigneeSelect').value,
+        status: document.getElementById('memoStatusInput').value
+      };
+
+      const res = await db.from('memos').upsert(payload).select().single();
+      btn.disabled = false;
+      if (res.error) { msg.className = 'form-msg is-error'; msg.textContent = 'エラー：' + res.error.message; return; }
+
+      const idx = allMemos.findIndex(function(m) { return m.id === res.data.id; });
+      if (idx !== -1) allMemos[idx] = res.data; else allMemos.push(res.data);
+      closeModal('memoModal');
+      refreshAllViews();
+      showToast('メモを保存しました');
+    }
+
+    async function deleteMemoItem(memo, btn) {
+      if (!confirm('このメモを削除しますか？\n\n' + (memo.timecode ? '[' + memo.timecode + '] ' : '') + memo.content)) return;
+      btn.disabled = true;
+      const res = await db.from('memos').delete().eq('id', memo.id);
+      if (res.error) { alert('削除失敗：' + res.error.message); btn.disabled = false; return; }
+
+      allMemos = allMemos.filter(function(m) { return m.id !== memo.id; });
+      refreshAllViews();
+      showToast('メモを削除しました');
+    }
+
+    // ==================== CRUD：台帳（素材・名簿） ====================
+    function openAssetModal(asset) {
+      if (!document.getElementById('projectSelect').value) { alert('先に作品を作成してください'); return; }
+      editingAssetId = asset ? asset.id : null;
+      document.getElementById('assetModalTitle').textContent = asset ? '素材を編集' : 'BGM・SE・フォントを追加';
+      document.getElementById('assetTypeInput').value = asset ? asset.type : 'BGM';
+      document.getElementById('assetCreditInput').value = asset ? asset.credit_req : '要';
+      document.getElementById('assetNameInput').value = asset ? asset.name : '';
+      document.getElementById('assetSceneInput').value = asset ? (asset.scene || '') : '';
+      document.getElementById('assetUrlInput').value = asset ? (asset.url || '') : '';
+      document.getElementById('assetModalMsg').textContent = '';
+      document.getElementById('assetModal').classList.add('open');
+    }
+
+    async function submitAssetModal() {
+      const project_id = document.getElementById('projectSelect').value;
+      const name = document.getElementById('assetNameInput').value.trim();
+      const msg = document.getElementById('assetModalMsg');
+      const btn = document.getElementById('assetSaveBtn');
+      if (!name) { msg.className = 'form-msg is-error'; msg.textContent = '曲名・素材名を入力してください'; return; }
+
+      btn.disabled = true; msg.className = 'form-msg'; msg.textContent = '保存中...';
+      const payload = {
+        id: editingAssetId || makeUniqueId('AS-'),
+        project_id: project_id,
+        type: document.getElementById('assetTypeInput').value,
+        credit_req: document.getElementById('assetCreditInput').value,
+        name: name,
+        scene: document.getElementById('assetSceneInput').value.trim(),
+        url: document.getElementById('assetUrlInput').value.trim()
+      };
+
+      const res = await db.from('assets').upsert(payload).select().single();
+      btn.disabled = false;
+      if (res.error) { msg.className = 'form-msg is-error'; msg.textContent = 'エラー：' + res.error.message; return; }
+
+      const idx = allAssets.findIndex(function(a) { return a.id === res.data.id; });
+      if (idx !== -1) allAssets[idx] = res.data; else allAssets.push(res.data);
+      closeModal('assetModal');
+      renderLedgerTab();
+      showToast('台帳に保存しました');
+    }
+
+    async function deleteAssetItem(asset, btn) {
+      if (!confirm('「' + asset.name + '」を台帳から削除しますか？')) return;
+      btn.disabled = true;
+      const res = await db.from('assets').delete().eq('id', asset.id);
+      if (res.error) { alert('削除失敗：' + res.error.message); btn.disabled = false; return; }
+      allAssets = allAssets.filter(function(a) { return a.id !== asset.id; });
+      renderLedgerTab();
+      showToast('素材を削除しました');
+    }
+
+    function openCreditModal(credit) {
+      if (!document.getElementById('projectSelect').value) { alert('先に作品を作成してください'); return; }
+      editingCreditId = credit ? credit.id : null;
+      document.getElementById('creditModalTitle').textContent = credit ? 'エンドロールを編集' : 'エンドロール名簿に追加';
+      document.getElementById('creditRoleInput').value = credit ? (credit.role || '') : '';
+      document.getElementById('creditNameInput').value = credit ? credit.person_name : '';
+      document.getElementById('creditCheckInput').value = credit ? credit.checked : '未';
+      document.getElementById('creditModalMsg').textContent = '';
+      document.getElementById('creditModal').classList.add('open');
+    }
+
+    async function submitCreditModal() {
+      const project_id = document.getElementById('projectSelect').value;
+      const person_name = document.getElementById('creditNameInput').value.trim();
+      const msg = document.getElementById('creditModalMsg');
+      const btn = document.getElementById('creditSaveBtn');
+      if (!person_name) { msg.className = 'form-msg is-error'; msg.textContent = '表記名を入力してください'; return; }
+
+      btn.disabled = true; msg.className = 'form-msg'; msg.textContent = '保存中...';
+      const payload = {
+        id: editingCreditId || makeUniqueId('CR-'),
+        project_id: project_id,
+        role: document.getElementById('creditRoleInput').value.trim(),
+        person_name: person_name,
+        checked: document.getElementById('creditCheckInput').value
+      };
+
+      const res = await db.from('credits').upsert(payload).select().single();
+      btn.disabled = false;
+      if (res.error) { msg.className = 'form-msg is-error'; msg.textContent = 'エラー：' + res.error.message; return; }
+
+      const idx = allCredits.findIndex(function(c) { return c.id === res.data.id; });
+      if (idx !== -1) allCredits[idx] = res.data; else allCredits.push(res.data);
+      closeModal('creditModal');
+      renderLedgerTab();
+      showToast('名簿を保存しました');
+    }
+
+    async function deleteCreditItem(credit, btn) {
+      if (!confirm('「' + credit.person_name + '」をエンドロール名簿から削除しますか？')) return;
+      btn.disabled = true;
+      const res = await db.from('credits').delete().eq('id', credit.id);
+      if (res.error) { alert('削除失敗：' + res.error.message); btn.disabled = false; return; }
+      allCredits = allCredits.filter(function(c) { return c.id !== credit.id; });
+      renderLedgerTab();
+      showToast('名簿から削除しました');
+    }
+  </script>
+</body>
+</html>
